@@ -1,0 +1,285 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Lottery Definition
+model Lottery {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  nameML       String   // Malayalam name
+  dayOfWeek    Int      // 0=Sunday, 1=Monday, etc.
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  draws        Draw[]
+  settings     LotterySetting[]
+
+  @@index([code])
+}
+
+// Draw/Result
+model Draw {
+  id             String   @id @default(cuid())
+  lotteryId      String
+  lottery        Lottery  @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+  drawNumber     String   // Official draw number
+  drawDate       DateTime // Official draw date (stored in specific timezone)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  
+  // Prize information
+  prizeTiers     PrizeTier[]
+  
+  // Provenance
+  sourceDocumentId String?
+  sourceDocument  SourceDocument? @relation(fields: [sourceDocumentId], references: [id])
+  
+  // Audit trail
+  ingestionAudits IngestionAudit[]
+  verificationIssues VerificationIssue[]
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([lotteryId, drawNumber])
+  @@index([lotteryId, drawDate])
+  @@index([verificationStatus])
+}
+
+// Prize Tier
+model PrizeTier {
+  id             String   @id @default(cuid())
+  drawId         String
+  draw           Draw     @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  tierName       String   // e.g., "First Prize", "Second Prize"
+  tierNumber     Int      // 1, 2, 3, etc.
+  
+  // Prize entries (can be multiple winners)
+  prizeEntries   PrizeEntry[]
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([drawId, tierNumber])
+  @@index([drawId])
+}
+
+// Individual Prize Entry
+model PrizeEntry {
+  id             String   @id @default(cuid())
+  prizeTierId    String
+  prizeTier      PrizeTier @relation(fields: [prizeTierId], references: [id], onDelete: Cascade)
+  
+  // Lottery number - stored as STRING to preserve leading zeroes
+  ticketNumber   String   // Full ticket number
+  lastFourDigits String   // 4-digit ending for analysis
+  
+  createdAt      DateTime @default(now())
+
+  @@unique([prizeTierId, ticketNumber])
+  @@index([prizeTierId])
+}
+
+// Source Document (for tracking provenance)
+model SourceDocument {
+  id             String   @id @default(cuid())
+  sourceType     String   // 'web', 'pdf', 'manual_upload'
+  sourceUrl      String?
+  sourceFormat   String   // 'html', 'json', 'pdf', 'csv'
+  retrievedAt    DateTime
+  contentHash    String   // Hash of retrieved content
+  
+  draws          Draw[]
+  
+  createdAt      DateTime @default(now())
+
+  @@index([contentHash])
+}
+
+// Ingestion Job (track synchronization runs)
+model IngestionJob {
+  id             String   @id @default(cuid())
+  status         String   @default("pending") // pending, running, success, failure
+  startedAt      DateTime
+  completedAt    DateTime?
+  
+  audits         IngestionAudit[]
+  
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Ingestion Audit (what happened during each sync)
+model IngestionAudit {
+  id             String   @id @default(cuid())
+  jobId          String
+  job            IngestionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  drawId         String?
+  draw           Draw?    @relation(fields: [drawId], references: [id], onDelete: SetNull)
+  
+  action         String   // 'created', 'updated', 'skipped', 'quarantined'
+  details        String?  // JSON with additional context
+  
+  createdAt      DateTime @default(now())
+
+  @@index([jobId])
+  @@index([drawId])
+}
+
+// Verification Issues
+model VerificationIssue {
+  id             String   @id @default(cuid())
+  drawId         String
+  draw           Draw     @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  
+  issueType      String   // 'missing_tier', 'conflicting_value', 'duplicate', 'invalid_format'
+  severity       String   // 'warning', 'error'
+  description    String
+  resolved       Boolean  @default(false)
+  
+  createdAt      DateTime @default(now())
+  resolvedAt     DateTime?
+
+  @@index([drawId, resolved])
+}
+
+// Analysis Run (for caching expensive calculations)
+model AnalysisRun {
+  id             String   @id @default(cuid())
+  lotteryId      String
+  prizeTierName  String?
+  
+  analysisType   String   // 'frequency', 'recency_weighted', 'positional'
+  results        String   // JSON with analysis results
+  
+  startDate      DateTime
+  endDate        DateTime
+  sampleSize     Int
+  
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([lotteryId, createdAt])
+}
+
+// Backtesting Results
+model BacktestRun {
+  id             String   @id @default(cuid())
+  lotteryId      String
+  prizeTierName  String
+  
+  methods        BacktestMethod[]
+  
+  trainStartDate DateTime
+  trainEndDate   DateTime
+  testStartDate  DateTime
+  testEndDate    DateTime
+  
+  candidateBudget Int
+  sampleSize      Int
+  
+  results        String   // JSON with statistical results
+  
+  createdAt      DateTime @default(now())
+  completedAt    DateTime?
+
+  @@index([lotteryId, createdAt])
+}
+
+// Individual Method Results in Backtest
+model BacktestMethod {
+  id             String   @id @default(cuid())
+  backtestRunId  String
+  backtestRun    BacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Cascade)
+  
+  methodName     String   // 'composite', 'exact_ending_freq', 'recency_weighted', 'positional', 'random'
+  
+  observedHits   Int
+  expectedHits   Float
+  excessHits     Float
+  rawPValue      Float?
+  adjustedPValue Float?
+  
+  configuration  String   // JSON with method configuration
+  
+  createdAt      DateTime @default(now())
+
+  @@unique([backtestRunId, methodName])
+}
+
+// Candidate Selection (store generated candidates)
+model CandidateSelection {
+  id             String   @id @default(cuid())
+  methodName     String
+  lotteryId      String
+  prizeTierName  String?
+  
+  candidates     String   // JSON array of 4-digit endings
+  configuration  String   // JSON with generation parameters
+  
+  trainCutoffDate DateTime
+  generatedAt    DateTime @default(now())
+
+  @@index([lotteryId, generatedAt])
+}
+
+// Method Definition (track method configurations)
+model MethodDefinition {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  description    String
+  
+  parameters     String   // JSON with all parameters
+  version        String   @default("1.0.0")
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Application Settings
+model ApplicationSetting {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  value          String
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Lottery-Specific Settings
+model LotterySetting {
+  id             String   @id @default(cuid())
+  lotteryId      String
+  lottery        Lottery  @relation(fields: [lotteryId], references: [id], onDelete: Cascade)
+  
+  key            String
+  value          String
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([lotteryId, key])
+}
+
+// Enums
+enum VerificationStatus {
+  UNVERIFIED
+  PARTIALLY_VERIFIED
+  FULLY_VERIFIED
+  CACHED
+  STALE
+  REJECTED
+  QUARANTINED
+}

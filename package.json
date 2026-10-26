@@ -1,0 +1,35 @@
+{
+  "name": "kerala-lottery-hub",
+  "version": "0.1.0",
+  "description": "Kerala Lottery Hub & Prediction Suite",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm -w apps/api run dev\" \"npm -w apps/web run dev\"",
+    "build": "npm -w packages/shared run build && npm -w packages/statistics run build && npm -w packages/data-ingestion run build && npm -w apps/web run build && npm -w apps/api run build",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "npm -w apps/api run test:unit && npm -w packages/statistics run test:unit && npm -w packages/shared run test:unit",
+    "test:integration": "npm -w apps/api run test:integration",
+    "test:e2e": "npm -w apps/web run test:e2e",
+    "lint": "eslint . --ext .ts,.tsx",
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "db:migrate": "npm -w apps/api run db:migrate",
+    "db:seed": "npm -w apps/api run db:seed",
+    "prisma:generate": "prisma generate"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
