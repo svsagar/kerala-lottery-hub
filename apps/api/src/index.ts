@@ -1,5 +1,6 @@
 import express, { Express } from 'express';
 import cors from 'cors';
+import type { RequestHandler } from "express";
 import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
@@ -10,11 +11,14 @@ import { requestLogger } from './middleware/requestLogger';
 import { healthRouter } from './routes/health';
 import { lotteryRouter } from './routes/lotteries';
 import { drawRouter } from './routes/draws';
+import { syncRouter } from './routes/sync';
+import { analysisRouter } from './routes/analysis';
+import { LotteryService } from './services/LotteryService';
 
 dotenv.config();
 
 const app: Express = express();
-const PORT = process.env.API_PORT || 3001;
+const PORT = parseInt(process.env.API_PORT || "3001", 10);
 const HOST = process.env.API_HOST || '0.0.0.0';
 
 // Middleware
@@ -29,6 +33,8 @@ app.use(requestLogger);
 app.use('/api/v1/health', healthRouter);
 app.use('/api/v1/lotteries', lotteryRouter);
 app.use('/api/v1/draws', drawRouter);
+app.use('/api/v1/sync', syncRouter);
+app.use('/api/v1/analysis', analysisRouter);
 
 // 404 handler
 app.use((req, res) => {
@@ -48,6 +54,10 @@ const startServer = async () => {
     // Test database connection
     await prisma.$queryRaw`SELECT 1`;
     logger.info('Database connected successfully');
+
+    // Initialize lotteries
+    await LotteryService.initializeLotteries();
+    logger.info('Lotteries initialized');
 
     app.listen(PORT, HOST as any, () => {
       logger.info(`Server running at http://${HOST}:${PORT}`);
